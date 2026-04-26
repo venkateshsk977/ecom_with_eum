@@ -10,12 +10,13 @@
     "prisma:build": "node scripts/merge-prisma.js",
     "prisma:validate": "npm run prisma:build && prisma validate",
     "prisma:migrate": "npm run prisma:build && prisma migrate dev",
-    "prisma:generate": "npm run prisma:build && prisma generate"
+    "prisma:generate": "npm run prisma:build && prisma generate",
+    "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "^7.8.0",
+    "@prisma/client": "^6.19.3",
     "next": "16.2.4",
-    "prisma": "^7.8.0",
+    "prisma": "^6.19.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -27,6 +28,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

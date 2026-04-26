@@ -1,0 +1,37 @@
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id              String      @id @default(uuid())
+
+  orderNumber     String      @unique
+
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+
+  addressId       String
+  address         Address     @relation(fields: [addressId], references: [id])
+
+  status          OrderStatus @default(PENDING)
+
+  subtotalAmount  Decimal     @db.Decimal(10,2)
+  taxAmount       Decimal     @db.Decimal(10,2)
+  shippingAmount  Decimal     @db.Decimal(10,2)
+  totalAmount     Decimal     @db.Decimal(10,2)
+
+  items           OrderItem[]
+  payments        Payment[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}

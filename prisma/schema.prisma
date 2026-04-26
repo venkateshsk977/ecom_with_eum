@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // FILE: models\catalog\category.prisma
@@ -30,29 +31,82 @@ model Category {
 
 // FILE: models\catalog\product.prisma
 model Product {
-  id           String    @id @default(uuid())
+  id          String   @id @default(uuid())
+  sku         String   @unique
+  slug        String   @unique
+  name        String
 
-  sku          String    @unique
-  slug         String    @unique
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
 
-  name         String
-  description  String?
+  inventory   Inventory?
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
 
-  basePrice    Decimal   @db.Decimal(10,2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
 
-  isActive     Boolean   @default(true)
+// FILE: models\checkout\address.prisma
+enum AddressType {
+  SHIPPING
+  BILLING
+}
 
-  metadata     Json?
+model Address {
+  id          String   @id @default(uuid())
 
-  categoryId   String
-  category     Category  @relation(fields: [categoryId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  orders      Order[]
 
-  @@index([categoryId])
-  @@index([isActive])
-  @@map("products")
+  type        AddressType
+  isDefault   Boolean  @default(false)
+
+  fullName    String
+  line1       String
+  city        String
+  state       String
+  postalCode  String
+  country     String
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// FILE: models\checkout\cart-item.prisma
+model CartItem {
+  id          String   @id @default(uuid())
+
+  cartId      String
+  cart        Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+
+  quantity    Int
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@map("cart_items")
+}
+
+// FILE: models\checkout\cart.prisma
+model Cart {
+  id          String     @id @default(uuid())
+
+  userId      String     @unique
+  user        User       @relation(fields: [userId], references: [id])
+
+  items       CartItem[]
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@map("carts")
 }
 
 // FILE: models\identity\role.prisma
@@ -75,19 +129,126 @@ enum UserStatus {
   INACTIVE
   BLOCKED
 }
-
 model User {
   id          String     @id @default(uuid())
   eumId       String     @unique
   fullName    String
   email       String     @unique
-  status      UserStatus @default(ACTIVE)
 
   roleId      String
   role        Role       @relation(fields: [roleId], references: [id])
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  cart        Cart?
+  addresses   Address[]
+  orders      Order[]
 
-  @@map("users")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+// FILE: models\inventory\inventory.prisma
+model Inventory {
+  id                String   @id @default(uuid())
+
+  productId         String   @unique
+  product           Product  @relation(fields: [productId], references: [id])
+
+  totalQuantity     Int      @default(0)
+  reservedQuantity  Int      @default(0)
+  minThreshold      Int      @default(0)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([minThreshold])
+  @@map("inventory")
+}
+
+// FILE: models\order\order-item.prisma
+model OrderItem {
+  id           String   @id @default(uuid())
+
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id])
+
+  quantity     Int
+
+  unitPrice    Decimal  @db.Decimal(10,2)
+  totalPrice   Decimal  @db.Decimal(10,2)
+
+  createdAt    DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// FILE: models\order\order.prisma
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id              String      @id @default(uuid())
+
+  orderNumber     String      @unique
+
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+
+  addressId       String
+  address         Address     @relation(fields: [addressId], references: [id])
+
+  status          OrderStatus @default(PENDING)
+
+  subtotalAmount  Decimal     @db.Decimal(10,2)
+  taxAmount       Decimal     @db.Decimal(10,2)
+  shippingAmount  Decimal     @db.Decimal(10,2)
+  totalAmount     Decimal     @db.Decimal(10,2)
+
+  items           OrderItem[]
+  payments        Payment[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+// FILE: models\payments\payment.prisma
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id])
+
+  gatewayName    String
+  transactionId  String?       @unique
+
+  amount         Decimal       @db.Decimal(10,2)
+
+  status         PaymentStatus @default(PENDING)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@map("payments")
 }
