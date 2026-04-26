@@ -1,0 +1,20 @@
+model Category {
+  id          String      @id @default(uuid())
+  name        String
+  slug        String      @unique
+
+  parentId    String?
+  parent      Category?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryTree")
+
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+
+  products    Product[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}

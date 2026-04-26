@@ -6,10 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prisma:build": "node scripts/merge-prisma.js",
+    "prisma:validate": "npm run prisma:build && prisma validate",
+    "prisma:migrate": "npm run prisma:build && prisma migrate dev",
+    "prisma:generate": "npm run prisma:build && prisma generate"
   },
   "dependencies": {
+    "@prisma/client": "^7.8.0",
     "next": "16.2.4",
+    "prisma": "^7.8.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },

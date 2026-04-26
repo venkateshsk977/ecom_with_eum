@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// FILE: models\catalog\category.prisma
+model Category {
+  id          String      @id @default(uuid())
+  name        String
+  slug        String      @unique
+
+  parentId    String?
+  parent      Category?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryTree")
+
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+
+  products    Product[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+// FILE: models\catalog\product.prisma
+model Product {
+  id           String    @id @default(uuid())
+
+  sku          String    @unique
+  slug         String    @unique
+
+  name         String
+  description  String?
+
+  basePrice    Decimal   @db.Decimal(10,2)
+
+  isActive     Boolean   @default(true)
+
+  metadata     Json?
+
+  categoryId   String
+  category     Category  @relation(fields: [categoryId], references: [id])
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([categoryId])
+  @@index([isActive])
+  @@map("products")
+}
+
+// FILE: models\identity\role.prisma
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+
+  users       User[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("roles")
+}
+
+// FILE: models\identity\user.prisma
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+model User {
+  id          String     @id @default(uuid())
+  eumId       String     @unique
+  fullName    String
+  email       String     @unique
+  status      UserStatus @default(ACTIVE)
+
+  roleId      String
+  role        Role       @relation(fields: [roleId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("users")
+}
