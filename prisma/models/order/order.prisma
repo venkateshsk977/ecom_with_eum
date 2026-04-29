@@ -1,10 +1,14 @@
 enum OrderStatus {
-  PENDING
-  CONFIRMED
+  PENDING_PAYMENT
   PAID
+  CONFIRMED
+  PACKED
   SHIPPED
   DELIVERED
+  FAILED
   CANCELLED
+  PENDING
+  PLACED
 }
 
 model Order {
@@ -27,6 +31,9 @@ model Order {
 
   items           OrderItem[]
   payments        Payment[]
+
+  razorpayOrderId   String?
+  paymentId         String?
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt

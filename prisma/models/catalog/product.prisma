@@ -3,7 +3,7 @@ model Product {
   sku         String   @unique
   slug        String   @unique
   name        String
-
+  price       Int        @default(0)
   categoryId  String
   category    Category @relation(fields: [categoryId], references: [id])
 
