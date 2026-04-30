@@ -11,6 +11,11 @@ enum OrderStatus {
   PLACED
 }
 
+enum PaymentMethod {
+  COD
+  ONLINE
+}
+
 model Order {
   id              String      @id @default(uuid())
 
@@ -32,9 +37,14 @@ model Order {
   items           OrderItem[]
   payments        Payment[]
 
-  razorpayOrderId   String?
-  paymentId         String?
+  razorpayOrderId   String?   
+  paymentId         String?   
+  paymentMethod     PaymentMethod     @default(COD)
 
+
+  packedAt     DateTime?
+  shippedAt    DateTime?
+  deliveredAt  DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 

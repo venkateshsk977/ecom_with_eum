@@ -1,11 +1,26 @@
 import prisma from "@/lib/prisma";
-import { OrderStatus } from "@prisma/client";
+import { OrderStatus,PaymentMethod, Prisma } from "@prisma/client";
 import Razorpay from "razorpay";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+// const razorpay = new Razorpay({
+//  // key_id: process.env.RAZORPAY_KEY_ID!,
+//   //key_secret: process.env.RAZORPAY_KEY_SECRET!,
+// });
+
+
+const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
+  PENDING: ["PENDING_PAYMENT"],
+  PENDING_PAYMENT: ["PAID", "FAILED"],
+  PAID: ["PLACED"],
+
+  PLACED: ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["PACKED", "CANCELLED"],
+  PACKED: ["SHIPPED"],
+  SHIPPED: ["DELIVERED"],
+  DELIVERED: [],
+  CANCELLED: [],
+  FAILED: [],
+};
 
 export async function createOrderFromCart(userId: string) {
     const cart = await prisma.cart.findUnique({
@@ -36,7 +51,8 @@ export async function createOrderFromCart(userId: string) {
             orderNumber: `ORD-${Date.now()}`,
             userId,
             addressId: address.id,
-            status: "PLACED",
+            status: OrderStatus.CONFIRMED,
+            paymentMethod: PaymentMethod.COD,
             subtotalAmount: 0,
             taxAmount: 0,
             shippingAmount: 0,
@@ -130,16 +146,15 @@ export async function createOrderFromCart(userId: string) {
         return order;
     });
 
-    const payment = await razorpay.orders.create({
-            amount: total * 100,
-            currency: "INR",
-            receipt: order.id, // 👈 KEY mapping
-        });
+    // const payment = await razorpay.orders.create({
+    //         amount: total * 100,
+    //         currency: "INR",
+    //         receipt: order.id, // 👈 KEY mapping
+    //     });
 
     await prisma.order.update({
         where: { id: order.id },
         data: {
-            razorpayOrderId: payment.id,
             subtotalAmount: total,
             taxAmount: 0,
             shippingAmount: 0,
@@ -207,24 +222,140 @@ const allowedStatuses = [
     "CANCELLED",
 ];
 
+
 export async function updateOrderStatus(
-    orderId: string,
-    status: OrderStatus
+  orderId: string,
+  nextStatus: OrderStatus
 ) {
-    if (!allowedStatuses.includes(status)) {
-        throw new Error("Invalid status");
-    }
+  const existing = await prisma.order.findUnique({
+    where: { id: orderId },
+  });
 
-    const existing = await prisma.order.findUnique({
-        where: { id: orderId },
+  if (!existing) {
+    throw new Error("Order not found");
+  }
+
+  // ✅ idempotent
+  if (existing.status === nextStatus) {
+    return existing;
+  }
+
+  // ✅ validate transition
+  if (!allowedTransitions[existing.status]?.includes(nextStatus)) {
+    throw new Error("Invalid status transition");
+  }
+
+  // ✅ prepare update payload (typed, no `any`)
+  const data: Prisma.OrderUpdateInput = {
+    status: nextStatus,
+  };
+
+  // ✅ timestamp mapping (scalable)
+  const statusTimestamps: Partial<
+    Record<OrderStatus, keyof Prisma.OrderUpdateInput>
+  > = {
+    PACKED: "packedAt",
+    SHIPPED: "shippedAt",
+    DELIVERED: "deliveredAt",
+  };
+
+  const field = statusTimestamps[nextStatus];
+
+  if (field && !existing[field as keyof typeof existing]) {
+    (data as any)[field] = new Date();
+  }
+
+  // ✅ concurrency-safe update
+  const result = await prisma.order.updateMany({
+    where: {
+      id: orderId,
+      status: existing.status, // prevents race condition
+    },
+    data,
+  });
+
+  if (result.count === 0) {
+    throw new Error("Order was updated by another process");
+  }
+
+  // ✅ return updated record
+  return prisma.order.findUnique({
+    where: { id: orderId },
+  });
+}
+export async function cancelOrder(orderId: string) {
+  return prisma.$transaction(async (tx) => {
+
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
     });
 
-    if (!existing) {
-        throw new Error("Order not found");
+    if (!order) {
+      throw new Error("Order not found");
     }
 
-    return prisma.order.update({
-        where: { id: orderId },
-        data: { status },
+    // ✅ idempotent
+    if (order.status === "CANCELLED") {
+      return order;
+    }
+
+    if (!allowedTransitions[order.status]?.includes("CANCELLED")) {
+      throw new Error("Invalid status transition");
+    }
+
+    // 🔁 Restore inventory
+    for (const item of order.items) {
+      await tx.inventory.update({
+        where: { productId: item.productId },
+        data: {
+          totalQuantity: {
+            increment: item.quantity,
+          },
+        },
+      });
+    }
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: {
+        status: "CANCELLED",
+      },
     });
+  });
+}
+
+
+export type GetOrdersParams = {
+  userId?: string;
+  status?: OrderStatus[];
+  cursor?: string;
+  limit?: number;
+};
+
+export async function getOrders(params: GetOrdersParams) {
+  const { userId, status, cursor, limit = 10 } = params;
+
+  return prisma.order.findMany({
+    where: {
+      ...(userId && { userId }),
+
+      ...(status && status.length > 0
+        ? {
+            status: { in: status },
+          }
+        : {}),
+    },
+
+    take: limit,
+    skip: cursor ? 1 : 0,
+
+    ...(cursor && {
+      cursor: { id: cursor },
+    }),
+
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
 }

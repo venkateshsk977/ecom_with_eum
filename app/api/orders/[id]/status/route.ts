@@ -1,41 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { updateOrderStatus } from "@/modules/orders/order.service";
-
+import { OrderStatus } from "@prisma/client";
 export async function PATCH(
-  request: Request,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await context.params; // ✅ FIX
+
   try {
-    const { id } = await context.params;
-    const body = await request.json();
+    const body = await req.json();
+    const { status } = body;
 
-    const status = body.status;
-
-    if (!status) {
+    if (!Object.values(OrderStatus).includes(status)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "status is required",
-        },
+        { error: "Invalid status" },
         { status: 400 }
       );
     }
 
-    const order = await updateOrderStatus(id, status);
+    const updated = await updateOrderStatus(id, status);
 
-    return NextResponse.json({
-      success: true,
-      data: order,
-    });
-  } catch (error) {
-    console.error("Update Order Status Error:", error);
-
+    return NextResponse.json(updated);
+  } catch (err: any) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update order status",
-      },
-      { status: 500 }
+      { error: err.message },
+      { status: 400 }
     );
   }
 }
