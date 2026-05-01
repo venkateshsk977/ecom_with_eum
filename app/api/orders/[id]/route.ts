@@ -1,5 +1,5 @@
 import { NextResponse,NextRequest } from "next/server";
-import { getOrderById } from "@/modules/orders/order.service";
+import { getOrderByIdSecure } from "@/modules/orders/order.service";
 import { getUser } from "@/lib/getUser";
 
 export async function GET(
@@ -10,7 +10,7 @@ export async function GET(
     const user = getUser(request); // 🔐
     const { id } = await context.params;
 
-    const order = await getOrderById(id);
+    const order = await getOrderByIdSecure(id, user);
 
     if (!order) {
       return NextResponse.json(
