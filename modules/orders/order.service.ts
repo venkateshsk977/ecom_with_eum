@@ -1,6 +1,8 @@
 import prisma from "@/lib/prisma";
-import { OrderStatus,PaymentMethod, Prisma } from "@prisma/client";
+import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
 import Razorpay from "razorpay";
+import { randomUUID } from "crypto";
+import { JwtUser } from "@/lib/getUser";
 
 // const razorpay = new Razorpay({
 //  // key_id: process.env.RAZORPAY_KEY_ID!,
@@ -23,209 +25,168 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 };
 
 export async function createOrderFromCart(userId: string) {
-    const cart = await prisma.cart.findUnique({
-        where: { userId },
-        include: {
-            items: {
-                include: {
-                    product: true,
-                },
-            },
+  return prisma.$transaction(async (tx) => {
+    const cart = await tx.cart.findUnique({
+      where: { userId },
+      include: {
+        items: {
+          include: { product: true },
         },
+      },
     });
 
     if (!cart || cart.items.length === 0) {
-        throw new Error("Cart is empty");
+      throw new Error("Cart is empty");
     }
 
-    const address = await prisma.address.findFirst({
-        where: { userId },
+    const address = await tx.address.findFirst({
+      where: { userId },
     });
 
     if (!address) {
-        throw new Error("Address not found");
+      throw new Error("Address not found");
     }
 
-    const order = await prisma.order.create({
-        data: {
-            orderNumber: `ORD-${Date.now()}`,
-            userId,
-            addressId: address.id,
-            status: OrderStatus.CONFIRMED,
-            paymentMethod: PaymentMethod.COD,
-            subtotalAmount: 0,
-            taxAmount: 0,
-            shippingAmount: 0,
-            totalAmount: 0,
-        },
+    // 🔥 Fetch latest prices
+    const products = await tx.product.findMany({
+      where: {
+        id: { in: cart.items.map(i => i.productId) },
+      },
     });
+
+    const priceMap = new Map(
+      products.map(p => [p.id, p.price])
+    );
 
     let total = 0;
 
-    await prisma.$transaction(async (tx) => {
+    // 🔥 Calculate total
+    for (const item of cart.items) {
+      const price = priceMap.get(item.productId);
 
-        // ✅ Step 1: fetch latest product prices
-        const products = await tx.product.findMany({
-            where: {
-                id: {
-                    in: cart.items.map(i => i.productId),
-                },
-            },
-        });
+      if (price === undefined) {
+        throw new Error("Product price not found");
+      }
 
-        const priceMap = new Map(
-            products.map(p => [p.id, p.price])
-        );
-
-        let total = 0;
-
-        // ✅ Step 2: calculate total using fresh prices
-        for (const item of cart.items) {
-            const price = priceMap.get(item.productId);
-
-            if (price === undefined) {
-                throw new Error("Product price not found");
-            }
-
-            total += price * item.quantity;
-        }
-
-        // ✅ Step 3: create order
-        const order = await tx.order.create({
-            data: {
-                orderNumber: `ORD-${Date.now()}`,
-                userId,
-                addressId: address.id,
-                status: "PLACED",
-                subtotalAmount: total,
-                taxAmount: 0,
-                shippingAmount: 0,
-                totalAmount: total,
-            },
-        });
-
-        // ✅ Step 4: inventory + order items
-        for (const item of cart.items) {
-            const price = priceMap.get(item.productId)!;
-
-            const updated = await tx.inventory.updateMany({
-                where: {
-                    productId: item.productId,
-                    totalQuantity: {
-                        gte: item.quantity,
-                    },
-                },
-                data: {
-                    totalQuantity: {
-                        decrement: item.quantity,
-                    },
-                },
-            });
-
-            if (updated.count === 0) {
-                throw new Error(
-                    `Insufficient stock for product ${item.product.name}`
-                );
-            }
-
-            await tx.orderItem.create({
-                data: {
-                    orderId: order.id,
-                    productId: item.productId,
-                    quantity: item.quantity,
-                    unitPrice: price,
-                    totalPrice: price * item.quantity,
-                },
-            });
-        }
-
-        // ✅ Step 5: clear cart
-        await tx.cartItem.deleteMany({
-            where: { cartId: cart.id },
-        });
-        return order;
-    });
-
-    // const payment = await razorpay.orders.create({
-    //         amount: total * 100,
-    //         currency: "INR",
-    //         receipt: order.id, // 👈 KEY mapping
-    //     });
-
-    await prisma.order.update({
-        where: { id: order.id },
-        data: {
-            subtotalAmount: total,
-            taxAmount: 0,
-            shippingAmount: 0,
-            totalAmount: total,
+      total += price * item.quantity;
+    }
+    const recentOrder = await tx.order.findFirst({
+      where: {
+        userId,
+        status: "PLACED",
+        createdAt: {
+          gte: new Date(Date.now() - 30000),
         },
+      },
     });
 
-    await prisma.cartItem.deleteMany({
+    if (recentOrder) return recentOrder;
+
+    // 🔥 Create order (ONLY ONCE)
+    const order = await tx.order.create({
+      data: {
+
+
+        orderNumber: `ORD-${randomUUID()}`,
+        userId,
+        addressId: address.id,
+        status: "PLACED",
+        paymentMethod: "COD",
+        subtotalAmount: total,
+        taxAmount: 0,
+        shippingAmount: 0,
+        totalAmount: total,
+      },
+    });
+
+    // 🔥 Inventory + order items
+    for (const item of cart.items) {
+      const price = priceMap.get(item.productId)!;
+
+      const updated = await tx.inventory.updateMany({
         where: {
-            cartId: cart.id,
+          productId: item.productId,
+          totalQuantity: { gte: item.quantity },
         },
+        data: {
+          totalQuantity: { decrement: item.quantity },
+        },
+      });
+
+      if (updated.count === 0) {
+        throw new Error(
+          `Insufficient stock for ${item.product.name}`
+        );
+      }
+
+      await tx.orderItem.create({
+        data: {
+          orderId: order.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: price,
+          totalPrice: price * item.quantity,
+        },
+      });
+    }
+
+    // 🔥 Clear cart (ONLY ONCE)
+    await tx.cartItem.deleteMany({
+      where: { cartId: cart.id },
     });
 
-    return prisma.order.findUnique({
-        where: { id: order.id },
-        include: {
-            items: {
-                include: {
-                    product: true,
-                },
-            },
+    return tx.order.findUnique({
+      where: { id: order.id },
+      include: {
+        items: {
+          include: { product: true },
         },
+      },
     });
+  });
 }
 
 export async function getOrdersByUserId(userId: string) {
-    return prisma.order.findMany({
-        where: { userId },
-        orderBy: {
-            createdAt: "desc",
-        },
+  return prisma.order.findMany({
+    where: { userId },
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      items: {
         include: {
-            items: {
-                include: {
-                    product: true,
-                },
-            },
+          product: true,
         },
-    });
+      },
+    },
+  });
 }
 
 
-export async function getOrderById(orderId: string) {
-    return prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-            items: {
-                include: {
-                    product: true,
-                },
-            },
-            address: true,
-        },
-    });
+export async function getOrderByIdSecure(
+  id: string,
+  user: { id: string; role: string }
+) {
+  const order = await prisma.order.findUnique({
+    where: { id },
+  });
+
+  if (!order) return null;
+
+  if (user.role !== "ADMIN" && order.userId !== user.id) {
+    throw new Error("Forbidden");
+  }
+
+  return order;
 }
 
 
-
-const allowedStatuses = [
-    "PLACED",
-    "CONFIRMED",
-    "PACKED",
-    "SHIPPED",
-    "DELIVERED",
-    "CANCELLED",
-];
 
 
 export async function updateOrderStatus(
   orderId: string,
-  nextStatus: OrderStatus
+  nextStatus: OrderStatus,
+  user:JwtUser
 ) {
   const existing = await prisma.order.findUnique({
     where: { id: orderId },
@@ -283,48 +244,29 @@ export async function updateOrderStatus(
     where: { id: orderId },
   });
 }
-export async function cancelOrder(orderId: string) {
-  return prisma.$transaction(async (tx) => {
 
-    const order = await tx.order.findUnique({
-      where: { id: orderId },
-      include: { items: true },
-    });
+export async function cancelOrder(
+  orderId: string,
+  user: { id: string; role: string }
+) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+  });
 
-    if (!order) {
-      throw new Error("Order not found");
-    }
+  if (!order) throw new Error("Order not found");
 
-    // ✅ idempotent
-    if (order.status === "CANCELLED") {
-      return order;
-    }
-
-    if (!allowedTransitions[order.status]?.includes("CANCELLED")) {
-      throw new Error("Invalid status transition");
-    }
-
-    // 🔁 Restore inventory
-    for (const item of order.items) {
-      await tx.inventory.update({
-        where: { productId: item.productId },
-        data: {
-          totalQuantity: {
-            increment: item.quantity,
-          },
-        },
-      });
-    }
-
-    return tx.order.update({
-      where: { id: orderId },
-      data: {
-        status: "CANCELLED",
-      },
-    });
+  // 🔒 Ownership check
+  if (user.role !== "ADMIN" && order.userId !== user.id) {
+    throw new Error("Forbidden");
+  }
+  if (!["PLACED", "CONFIRMED"].includes(order.status)) {
+    throw new Error("Order cannot be cancelled");
+  }
+  return prisma.order.update({
+    where: { id: orderId },
+    data: { status: "CANCELLED" },
   });
 }
-
 
 export type GetOrdersParams = {
   userId?: string;
@@ -337,25 +279,30 @@ export async function getOrders(params: GetOrdersParams) {
   const { userId, status, cursor, limit = 10 } = params;
 
   return prisma.order.findMany({
-    where: {
-      ...(userId && { userId }),
+  where: {
+    ...(userId && { userId }),
+    ...(status && status.length > 0
+      ? { status: { in: status } }
+      : {}),
+  },
 
-      ...(status && status.length > 0
-        ? {
-            status: { in: status },
-          }
-        : {}),
+  take: limit,
+  skip: cursor ? 1 : 0,
+
+  ...(cursor && {
+    cursor: { id: cursor },
+  }),
+
+  orderBy: {
+    createdAt: "desc",
+  },
+
+  include: {
+    items: {
+      include: {
+        product: true,
+      },
     },
-
-    take: limit,
-    skip: cursor ? 1 : 0,
-
-    ...(cursor && {
-      cursor: { id: cursor },
-    }),
-
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  },
+});
 }

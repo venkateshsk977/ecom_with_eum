@@ -1,31 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrders } from "@/modules/orders/order.service";
 import { OrderStatus } from "@prisma/client";
+import { getUser } from "@/lib/getUser";
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+  try {
+    const user = getUser(req); // 🔐 source of truth
 
-  const userId = searchParams.get("userId");
-  const cursor = searchParams.get("cursor");
-  const limit = Number(searchParams.get("limit")) || 10;
+    const { searchParams } = new URL(req.url);
 
-  const rawStatus = searchParams.getAll("status");
+    const cursor = searchParams.get("cursor");
+    const limit = Number(searchParams.get("limit")) || 10;
 
-  const status = rawStatus.length
-    ? rawStatus.filter((s): s is OrderStatus =>
-        Object.values(OrderStatus).includes(s as OrderStatus)
-      )
-    : undefined;
+    const rawStatus = searchParams.getAll("status");
 
-  const orders = await getOrders({
-    userId: userId || undefined,
-    status,
-    cursor: cursor || undefined,
-    limit,
-  });
+    const status = rawStatus.length
+      ? rawStatus.filter((s): s is OrderStatus =>
+          Object.values(OrderStatus).includes(s as OrderStatus)
+        )
+      : undefined;
 
-  return NextResponse.json({
-    data: orders,
-    nextCursor: orders.length ? orders[orders.length - 1].id : null,
-  });
+    // 🔒 enforce ownership
+    const userId =
+      user.role === "ADMIN"
+        ? searchParams.get("userId") || undefined // admin can filter
+        : user.id; // user locked to own data
+
+    const orders = await getOrders({
+      userId,
+      status,
+      cursor: cursor || undefined,
+      limit,
+    });
+
+    return NextResponse.json({
+      data: orders,
+      nextCursor: orders.length
+        ? orders[orders.length - 1].id
+        : null,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch orders" },
+      { status: error.message === "Unauthorized" ? 401 : 500 }
+    );
+  }
 }

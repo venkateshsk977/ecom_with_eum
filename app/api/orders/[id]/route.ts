@@ -1,22 +1,29 @@
-import { NextResponse } from "next/server";
+import { NextResponse,NextRequest } from "next/server";
 import { getOrderById } from "@/modules/orders/order.service";
+import { getUser } from "@/lib/getUser";
 
 export async function GET(
-  request: Request,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = getUser(request); // 🔐
     const { id } = await context.params;
 
     const order = await getOrderById(id);
 
     if (!order) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Order not found",
-        },
+        { success: false, message: "Order not found" },
         { status: 404 }
+      );
+    }
+
+    // 🔒 Ownership check
+    if (user.role !== "ADMIN" && order.userId !== user.id) {
+      return NextResponse.json(
+        { success: false, message: "Forbidden" },
+        { status: 403 }
       );
     }
 
@@ -24,15 +31,13 @@ export async function GET(
       success: true,
       data: order,
     });
-  } catch (error) {
-    console.error("Get Order Detail Error:", error);
-
+  } catch (error: any) {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch order",
+        message: error.message || "Failed to fetch order",
       },
-      { status: 500 }
+      { status: error.message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

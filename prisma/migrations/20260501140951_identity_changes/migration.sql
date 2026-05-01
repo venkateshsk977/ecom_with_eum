@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "passwordHash" TEXT,
+ALTER COLUMN "eumId" DROP NOT NULL,
+ALTER COLUMN "email" DROP NOT NULL;

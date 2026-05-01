@@ -1,37 +1,24 @@
-import { NextResponse } from "next/server";
+import { NextResponse ,NextRequest} from "next/server";
 import { getCartByUserId } from "@/modules/checkout/cart.service";
+import { getUser } from "@/lib/getUser";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const user = getUser(request); // 🔐 source of truth
 
-    const userId = searchParams.get("userId");
-
-    if (!userId) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "userId is required",
-        },
-        { status: 400 }
-      );
-    }
-
-    const cart = await getCartByUserId(userId);
+    const cart = await getCartByUserId(user.id);
 
     return NextResponse.json({
       success: true,
       data: cart,
     });
-  } catch (error) {
-    console.error("Get Cart Error:", error);
-
+  } catch (error: any) {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch cart",
+        message: error.message || "Failed to fetch cart",
       },
-      { status: 500 }
+      { status: error.message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

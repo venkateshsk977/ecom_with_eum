@@ -1,27 +1,31 @@
-import { NextResponse } from "next/server";
-import { createPaymentOrder } from "@/modules/payments/payment.service";
+import { NextResponse ,NextRequest} from "next/server";
+import { createOnlinePaymentOrder } from "@/modules/payments/payment.service";
+import { getUser } from "@/lib/getUser";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const user = getUser(request); // 🔐
+
     const body = await request.json();
+    const { orderId } = body;
 
-    const { amount } = body;
+    if (!orderId) {
+      return NextResponse.json(
+        { success: false, message: "orderId is required" },
+        { status: 400 }
+      );
+    }
 
-    const payment = await createPaymentOrder(amount);
+    const payment = await createOnlinePaymentOrder(orderId, user);
 
     return NextResponse.json({
       success: true,
       data: payment,
     });
-  } catch (error) {
-    console.error("Payment Init Error:", error);
-
+  } catch (error: any) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to initiate payment",
-      },
-      { status: 500 }
+      { success: false, message: error.message || "Failed to initiate payment" },
+      { status: error.message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

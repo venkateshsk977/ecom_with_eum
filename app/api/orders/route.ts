@@ -1,62 +1,56 @@
-import { NextResponse } from "next/server";
-import { createOrderFromCart , getOrdersByUserId } from "@/modules/orders/order.service";
+import { NextResponse,NextRequest } from "next/server";
+import {
+  createOrderFromCart,
+  getOrdersByUserId,
+} from "@/modules/orders/order.service";
+import { getUser } from "@/lib/getUser";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const user = getUser(request); // 🔐
 
-    const order = await createOrderFromCart(body.userId);
+    const order = await createOrderFromCart(user.id);
 
     return NextResponse.json({
       success: true,
       data: order,
     });
-  } catch (error) {
-    console.error("Create Order Error:", error);
-
+  } catch (error: any) {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to create order",
+        message: error.message || "Failed to create order",
       },
-      { status: 500 }
+      { status: error.message === "Unauthorized" ? 401 : 500 }
     );
   }
 }
 
-
-
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    const user = getUser(request); // 🔐
+
     const { searchParams } = new URL(request.url);
 
-    const userId = searchParams.get("userId");
+    // ADMIN can optionally query others
+    const userId =
+      user.role === "ADMIN"
+        ? searchParams.get("userId") || undefined
+        : user.id;
 
-    if (!userId) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "userId is required",
-        },
-        { status: 400 }
-      );
-    }
-
-    const orders = await getOrdersByUserId(userId);
+    const orders = await getOrdersByUserId(userId!);
 
     return NextResponse.json({
       success: true,
       data: orders,
     });
-  } catch (error) {
-    console.error("Get Orders Error:", error);
-
+  } catch (error: any) {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch orders",
+        message: error.message || "Failed to fetch orders",
       },
-      { status: 500 }
+      { status: error.message === "Unauthorized" ? 401 : 500 }
     );
   }
 }
