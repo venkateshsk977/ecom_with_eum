@@ -6,7 +6,10 @@ export async function GET(req: NextRequest) {
   try {
     const user = getUser(req);
 
-    const preview = await computePricing(user.id);
+    const { searchParams } = new URL(req.url);
+    const couponCode = searchParams.get("coupon") || undefined;
+
+    const preview = await computePricing(user.id, undefined, couponCode);
 
     return NextResponse.json({
       success: true,

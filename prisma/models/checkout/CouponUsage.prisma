@@ -1,0 +1,10 @@
+model CouponUsage {
+  id        String   @id @default(uuid())
+
+  userId    String
+  couponId  String
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, couponId])
+}

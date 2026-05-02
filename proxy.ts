@@ -23,11 +23,9 @@ const ROLE_RULES: {
   pattern: RegExp;
   roles: string[];
 }[] = [
-  // ⚠️ Specific rules first
   { pattern: /^\/api\/orders\/.+\/status$/, roles: ["ADMIN"] },
-
-  // General rule
   { pattern: /^\/api\/orders(\/.*)?$/, roles: ["ADMIN", "USER"] },
+  { pattern: /^\/api\/admin/, roles: ["ADMIN"] }
 ];
 
 

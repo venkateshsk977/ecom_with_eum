@@ -1,10 +1,19 @@
 import prisma from "@/lib/prisma";
+import { UUID } from "crypto";
+
+type AppliedCoupon = {
+  id: string;
+  code: string;
+  discount: number;
+};
 
 export async function computePricing(
   userId: string,
   addressId?: string,
   couponCode?: string
 ) {
+
+ console.log("Computing pricing for user:", userId, "address:", addressId, "coupon:", couponCode);
   const cart = await prisma.cart.findUnique({
     where: { userId },
     include: {
@@ -66,7 +75,7 @@ export async function computePricing(
   // 🧾 COUPON LOGIC (inline, cleanly isolated)
   // ======================
   let discount = 0;
-  let appliedCoupon: { code: string; discount: number } | null = null;
+  let appliedCoupon: AppliedCoupon | null = null;
 
   if (couponCode) {
     const coupon = await prisma.coupon.findUnique({
@@ -95,6 +104,19 @@ export async function computePricing(
       );
     }
 
+    const alreadyUsed = await prisma.couponUsage.findUnique({
+      where: {
+        userId_couponId: {
+          userId,
+          couponId: coupon.id,
+        },
+      },
+    });
+
+    if (alreadyUsed) {
+      throw new Error("Coupon already used");
+    }
+
     // 🔥 apply discount
     if (coupon.type === "PERCENTAGE") {
       discount = Math.round(
@@ -114,6 +136,7 @@ export async function computePricing(
     appliedCoupon = {
       code: coupon.code,
       discount,
+      id:coupon.id
     };
   }
 

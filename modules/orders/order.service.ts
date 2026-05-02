@@ -28,10 +28,10 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 // ======================
 
 
-export async function createOrderFromCart(userId: string) {
+export async function createOrderFromCart(userId: string, couponCode?: string) {
   return prisma.$transaction(async (tx) => {
 
-    const pricing = await computePricing(userId);
+    const pricing = await computePricing(userId, undefined, couponCode);
 
     const order = await tx.order.create({
       data: {
@@ -72,6 +72,15 @@ export async function createOrderFromCart(userId: string) {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+        },
+      });
+    }
+
+    if (pricing.coupon) {
+      await tx.couponUsage.create({
+        data: {
+          userId,
+          couponId: pricing.coupon.id,
         },
       });
     }

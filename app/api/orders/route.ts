@@ -8,8 +8,8 @@ import { getUser } from "@/lib/getUser";
 export async function POST(request: NextRequest) {
   try {
     const user = getUser(request); // 🔐
-
-    const order = await createOrderFromCart(user.id);
+    const body = await request.json();
+    const order = await createOrderFromCart(user.id,body.couponCode);
 
     return NextResponse.json({
       success: true,

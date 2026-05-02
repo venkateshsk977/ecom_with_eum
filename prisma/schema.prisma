@@ -49,6 +49,18 @@ model Product {
   updatedAt   DateTime @updatedAt
 }
 
+// FILE: models\checkout\CouponUsage.prisma
+model CouponUsage {
+  id        String   @id @default(uuid())
+
+  userId    String
+  couponId  String
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, couponId])
+}
+
 // FILE: models\checkout\address.prisma
 enum AddressType {
   SHIPPING
