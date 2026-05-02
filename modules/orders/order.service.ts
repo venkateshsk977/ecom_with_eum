@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { JwtUser } from "@/lib/getUser";
+import { computePricing } from "../checkout/checkout.service";
 
 // ======================
 // ORDER STATE MACHINE
@@ -25,83 +26,29 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 // ======================
 // CREATE ORDER
 // ======================
+
+
 export async function createOrderFromCart(userId: string) {
   return prisma.$transaction(async (tx) => {
-    const cart = await tx.cart.findUnique({
-      where: { userId },
-      include: {
-        items: {
-          include: { product: true },
-        },
-      },
-    });
 
-    if (!cart || cart.items.length === 0) {
-      throw new Error("Cart is empty");
-    }
+    const pricing = await computePricing(userId);
 
-    // 🔁 Idempotency (early)
-    const recentOrder = await tx.order.findFirst({
-      where: {
-        userId,
-        status: "PLACED",
-        createdAt: {
-          gte: new Date(Date.now() - 30000),
-        },
-      },
-    });
-
-    if (recentOrder) return recentOrder;
-
-    // 📍 Default address
-    const address = await tx.address.findFirst({
-      where: { userId, isDefault: true },
-    });
-
-    if (!address) {
-      throw new Error("Default address not found");
-    }
-
-    // 🔍 Fetch latest prices
-    const products = await tx.product.findMany({
-      where: {
-        id: { in: cart.items.map((i) => i.productId) },
-      },
-    });
-
-    const priceMap = new Map(products.map((p) => [p.id, p.price]));
-
-    let total = 0;
-
-    for (const item of cart.items) {
-      const price = priceMap.get(item.productId);
-
-      if (price === undefined) {
-        throw new Error(`Price missing for product ${item.productId}`);
-      }
-
-      total += price.toNumber() * item.quantity;
-    }
-
-    // 🧾 Create order
     const order = await tx.order.create({
       data: {
-        orderNumber: `ORD-${randomUUID()}`,
+        orderNumber: `ORD-${Date.now()}`,
         userId,
-        addressId: address.id,
+        addressId: pricing.address.id,
         status: "PLACED",
         paymentMethod: "COD",
-        subtotalAmount: total,
-        taxAmount: 0,
-        shippingAmount: 0,
-        totalAmount: total,
+
+        subtotalAmount: pricing.subtotal,
+        taxAmount: pricing.tax,
+        shippingAmount: pricing.shipping,
+        totalAmount: pricing.total,
       },
     });
 
-    // 📦 Inventory + order items
-    for (const item of cart.items) {
-      const price = priceMap.get(item.productId)!;
-
+    for (const item of pricing.items) {
       const updated = await tx.inventory.updateMany({
         where: {
           productId: item.productId,
@@ -115,9 +62,7 @@ export async function createOrderFromCart(userId: string) {
       });
 
       if (updated.count === 0) {
-        throw new Error(
-          `Insufficient stock for ${item.product.name}`
-        );
+        throw new Error("Insufficient stock");
       }
 
       await tx.orderItem.create({
@@ -125,15 +70,18 @@ export async function createOrderFromCart(userId: string) {
           orderId: order.id,
           productId: item.productId,
           quantity: item.quantity,
-          unitPrice: price,
-          totalPrice: price.toNumber() * item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
         },
       });
     }
 
-    // 🧹 Clear cart
     await tx.cartItem.deleteMany({
-      where: { cartId: cart.id },
+      where: {
+        cartId: (
+          await tx.cart.findUnique({ where: { userId } })
+        )?.id,
+      },
     });
 
     return tx.order.findUnique({
