@@ -3,32 +3,50 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("Seeding started...");
+  console.log("🧹 Cleaning database...");
 
-  // Roles
-  const adminRole = await prisma.role.upsert({
-    where: { name: "Admin" },
-    update: {},
-    create: {
-      name: "Admin",
+  // ⚠️ Order matters due to FK constraints
+  await prisma.payment.deleteMany();
+  await prisma.orderItem.deleteMany();
+  await prisma.order.deleteMany();
+
+  await prisma.cartItem.deleteMany();
+  await prisma.cart.deleteMany();
+
+  await prisma.inventory.deleteMany();
+  await prisma.product.deleteMany();
+  await prisma.category.deleteMany();
+
+  await prisma.address.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.role.deleteMany();
+
+  console.log("✅ Database cleaned");
+
+  console.log("🌱 Seeding started...");
+
+  // ======================
+  // ROLES
+  // ======================
+  const adminRole = await prisma.role.create({
+    data: {
+      name: "ADMIN",
       description: "Platform administrator",
     },
   });
 
-  const employeeRole = await prisma.role.upsert({
-    where: { name: "Employee" },
-    update: {},
-    create: {
-      name: "Employee",
-      description: "Standard customer user",
+  const userRole = await prisma.role.create({
+    data: {
+      name: "USER",
+      description: "Standard customer",
     },
   });
 
-  // Users
-  const adminUser = await prisma.user.upsert({
-    where: { email: "admin@demo.com" },
-    update: {},
-    create: {
+  // ======================
+  // USERS
+  // ======================
+  const adminUser = await prisma.user.create({
+    data: {
       eumId: "EUM-ADMIN-001",
       fullName: "Admin User",
       email: "admin@demo.com",
@@ -36,64 +54,60 @@ async function main() {
     },
   });
 
-  const customer = await prisma.user.upsert({
-    where: { email: "customer@demo.com" },
-    update: {},
-    create: {
+  const customer = await prisma.user.create({
+    data: {
       eumId: "EUM-CUST-001",
       fullName: "Demo Customer",
       email: "customer@demo.com",
-      roleId: employeeRole.id,
+      roleId: userRole.id,
     },
   });
 
-  // Categories
-  const electronics = await prisma.category.upsert({
-    where: { slug: "electronics" },
-    update: {},
-    create: {
+  // ======================
+  // CATEGORIES
+  // ======================
+  const electronics = await prisma.category.create({
+    data: {
       name: "Electronics",
       slug: "electronics",
     },
   });
 
-  const accessories = await prisma.category.upsert({
-    where: { slug: "accessories" },
-    update: {},
-    create: {
+  const accessories = await prisma.category.create({
+    data: {
       name: "Accessories",
       slug: "accessories",
     },
   });
 
-  // Products
-  const laptop = await prisma.product.upsert({
-    where: { sku: "SKU1001" },
-    update: {},
-    create: {
+  // ======================
+  // PRODUCTS
+  // ======================
+  const laptop = await prisma.product.create({
+    data: {
       sku: "SKU1001",
       slug: "gaming-laptop",
       name: "Gaming Laptop",
+      price: 1000,
       categoryId: electronics.id,
     },
   });
 
-  const headphones = await prisma.product.upsert({
-    where: { sku: "SKU1002" },
-    update: {},
-    create: {
+  const headphones = await prisma.product.create({
+    data: {
       sku: "SKU1002",
       slug: "wireless-headphones",
       name: "Wireless Headphones",
+      price: 500,
       categoryId: accessories.id,
     },
   });
 
-  // Inventory
-  await prisma.inventory.upsert({
-    where: { productId: laptop.id },
-    update: {},
-    create: {
+  // ======================
+  // INVENTORY
+  // ======================
+  await prisma.inventory.create({
+    data: {
       productId: laptop.id,
       totalQuantity: 15,
       reservedQuantity: 0,
@@ -101,10 +115,8 @@ async function main() {
     },
   });
 
-  await prisma.inventory.upsert({
-    where: { productId: headphones.id },
-    update: {},
-    create: {
+  await prisma.inventory.create({
+    data: {
       productId: headphones.id,
       totalQuantity: 30,
       reservedQuantity: 0,
@@ -112,7 +124,9 @@ async function main() {
     },
   });
 
-  // Address
+  // ======================
+  // ADDRESS
+  // ======================
   const address = await prisma.address.create({
     data: {
       userId: customer.id,
@@ -127,11 +141,11 @@ async function main() {
     },
   });
 
-  // Cart
-  const cart = await prisma.cart.upsert({
-    where: { userId: customer.id },
-    update: {},
-    create: {
+  // ======================
+  // CART
+  // ======================
+  const cart = await prisma.cart.create({
+    data: {
       userId: customer.id,
     },
   });
@@ -144,13 +158,18 @@ async function main() {
     },
   });
 
-  // Order
+  // ======================
+  // ORDER (COD FLOW)
+  // ======================
   const order = await prisma.order.create({
     data: {
-      orderNumber: "ORD10001",
+      orderNumber: "ORD-DEMO-001",
       userId: customer.id,
       addressId: address.id,
-      status: "PAID",
+      status: "PLACED",
+      paymentMethod: "COD",
+      paymentStatus: "PENDING",
+
       subtotalAmount: 1000,
       taxAmount: 100,
       shippingAmount: 50,
@@ -168,18 +187,19 @@ async function main() {
     },
   });
 
-  // Payment
-  await prisma.payment.create({
+  // ======================
+  // INVENTORY SYNC
+  // ======================
+  await prisma.inventory.update({
+    where: { productId: laptop.id },
     data: {
-      orderId: order.id,
-      gatewayName: "Razorpay",
-      transactionId: "TXN10001",
-      amount: 1150,
-      status: "SUCCESS",
+      totalQuantity: {
+        decrement: 1,
+      },
     },
   });
 
-  console.log("Seeding completed.");
+  console.log("✅ Seeding completed.");
 }
 
 main()

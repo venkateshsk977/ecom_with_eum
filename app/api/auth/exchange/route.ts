@@ -1,56 +1,89 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { signToken } from "@/lib/auth";
+import jwt from "jsonwebtoken";
 
-export async function POST(req: Request) {
+const SECRET = process.env.JWT_SECRET!;
+
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const { eumId, email, fullName } = body;
+    const { email, fullName, eumId } = body;
 
-    if (!eumId) {
+    if (!email) {
       return NextResponse.json(
-        { message: "Invalid identity" },
+        { success: false, message: "Email is required" },
         { status: 400 }
       );
     }
 
-    // 🔍 find or create user
-    let user = await prisma.user.findUnique({
-      where: { eumId },
-      include: { role: true },
+    // 🔍 find existing user
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          ...(eumId ? [{ eumId }] : []),
+        ],
+      },
+      include: {
+        role: true,
+      },
     });
 
+    // 🆕 create if not exists
     if (!user) {
-      // default role
-      const role = await prisma.role.findFirst({
+      const defaultRole = await prisma.role.findUnique({
         where: { name: "USER" },
       });
 
+      if (!defaultRole) {
+        throw new Error("Default role not found");
+      }
+
       user = await prisma.user.create({
         data: {
-          eumId,
           email,
-          fullName,
-          roleId: role!.id,
+          fullName: fullName || "User",
+          eumId: eumId || null,
+          roleId: defaultRole.id,
         },
-        include: { role: true },
+        include: {
+          role: true,
+        },
       });
     }
 
-    // 🔐 issue JWT
-  const token = signToken({
-  id: user.id,
-  role: user.role.name, // ✅ THIS is the change
-});
+    // 🔐 generate JWT
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role.name, // 👈 IMPORTANT
+      },
+      SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
 
     return NextResponse.json({
       success: true,
-      token,
+      data: {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role.name,
+        },
+      },
     });
-  } catch (err) {
+  } catch (err: any) {
+    console.error("Auth exchange error:", err);
+
     return NextResponse.json(
-      { message: "Auth exchange failed" },
+      {
+        success: false,
+        message: "Failed to authenticate",
+      },
       { status: 500 }
     );
   }

@@ -16,5 +16,6 @@ model Category {
   updatedAt   DateTime    @updatedAt
 
   @@index([parentId])
+  @@index([slug])
   @@map("categories")
 }

@@ -1,29 +1,30 @@
 import prisma from "@/lib/prisma";
-import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
-import Razorpay from "razorpay";
+import { OrderStatus, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { JwtUser } from "@/lib/getUser";
 
-// const razorpay = new Razorpay({
-//  // key_id: process.env.RAZORPAY_KEY_ID!,
-//   //key_secret: process.env.RAZORPAY_KEY_SECRET!,
-// });
-
-
+// ======================
+// ORDER STATE MACHINE
+// ======================
 const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
   PENDING: ["PENDING_PAYMENT"],
   PENDING_PAYMENT: ["PAID", "FAILED"],
+
   PAID: ["PLACED"],
 
   PLACED: ["CONFIRMED", "CANCELLED"],
   CONFIRMED: ["PACKED", "CANCELLED"],
   PACKED: ["SHIPPED"],
   SHIPPED: ["DELIVERED"],
+
   DELIVERED: [],
   CANCELLED: [],
   FAILED: [],
 };
 
+// ======================
+// CREATE ORDER
+// ======================
 export async function createOrderFromCart(userId: string) {
   return prisma.$transaction(async (tx) => {
     const cart = await tx.cart.findUnique({
@@ -39,37 +40,7 @@ export async function createOrderFromCart(userId: string) {
       throw new Error("Cart is empty");
     }
 
-    const address = await tx.address.findFirst({
-      where: { userId },
-    });
-
-    if (!address) {
-      throw new Error("Address not found");
-    }
-
-    // 🔥 Fetch latest prices
-    const products = await tx.product.findMany({
-      where: {
-        id: { in: cart.items.map(i => i.productId) },
-      },
-    });
-
-    const priceMap = new Map(
-      products.map(p => [p.id, p.price])
-    );
-
-    let total = 0;
-
-    // 🔥 Calculate total
-    for (const item of cart.items) {
-      const price = priceMap.get(item.productId);
-
-      if (price === undefined) {
-        throw new Error("Product price not found");
-      }
-
-      total += price * item.quantity;
-    }
+    // 🔁 Idempotency (early)
     const recentOrder = await tx.order.findFirst({
       where: {
         userId,
@@ -82,11 +53,39 @@ export async function createOrderFromCart(userId: string) {
 
     if (recentOrder) return recentOrder;
 
-    // 🔥 Create order (ONLY ONCE)
+    // 📍 Default address
+    const address = await tx.address.findFirst({
+      where: { userId, isDefault: true },
+    });
+
+    if (!address) {
+      throw new Error("Default address not found");
+    }
+
+    // 🔍 Fetch latest prices
+    const products = await tx.product.findMany({
+      where: {
+        id: { in: cart.items.map((i) => i.productId) },
+      },
+    });
+
+    const priceMap = new Map(products.map((p) => [p.id, p.price]));
+
+    let total = 0;
+
+    for (const item of cart.items) {
+      const price = priceMap.get(item.productId);
+
+      if (price === undefined) {
+        throw new Error(`Price missing for product ${item.productId}`);
+      }
+
+      total += price.toNumber() * item.quantity;
+    }
+
+    // 🧾 Create order
     const order = await tx.order.create({
       data: {
-
-
         orderNumber: `ORD-${randomUUID()}`,
         userId,
         addressId: address.id,
@@ -99,7 +98,7 @@ export async function createOrderFromCart(userId: string) {
       },
     });
 
-    // 🔥 Inventory + order items
+    // 📦 Inventory + order items
     for (const item of cart.items) {
       const price = priceMap.get(item.productId)!;
 
@@ -109,7 +108,9 @@ export async function createOrderFromCart(userId: string) {
           totalQuantity: { gte: item.quantity },
         },
         data: {
-          totalQuantity: { decrement: item.quantity },
+          totalQuantity: {
+            decrement: item.quantity,
+          },
         },
       });
 
@@ -125,12 +126,12 @@ export async function createOrderFromCart(userId: string) {
           productId: item.productId,
           quantity: item.quantity,
           unitPrice: price,
-          totalPrice: price * item.quantity,
+          totalPrice: price.toNumber() * item.quantity,
         },
       });
     }
 
-    // 🔥 Clear cart (ONLY ONCE)
+    // 🧹 Clear cart
     await tx.cartItem.deleteMany({
       where: { cartId: cart.id },
     });
@@ -146,6 +147,9 @@ export async function createOrderFromCart(userId: string) {
   });
 }
 
+// ======================
+// GET ORDERS (USER)
+// ======================
 export async function getOrdersByUserId(userId: string) {
   return prisma.order.findMany({
     where: { userId },
@@ -162,10 +166,12 @@ export async function getOrdersByUserId(userId: string) {
   });
 }
 
-
+// ======================
+// SECURE ORDER FETCH
+// ======================
 export async function getOrderByIdSecure(
   id: string,
-  user: { id: string; role: string }
+  user: JwtUser
 ) {
   const order = await prisma.order.findUnique({
     where: { id },
@@ -177,17 +183,29 @@ export async function getOrderByIdSecure(
     throw new Error("Forbidden");
   }
 
-  return order;
+  return prisma.order.findUnique({
+    where: { id },
+    include: {
+      items: {
+        include: { product: true },
+      },
+      address: true,
+    },
+  });
 }
 
-
-
-
+// ======================
+// UPDATE ORDER STATUS
+// ======================
 export async function updateOrderStatus(
   orderId: string,
   nextStatus: OrderStatus,
-  user:JwtUser
+  user: JwtUser
 ) {
+  if (user.role !== "ADMIN") {
+    throw new Error("Forbidden");
+  }
+
   const existing = await prisma.order.findUnique({
     where: { id: orderId },
   });
@@ -196,22 +214,18 @@ export async function updateOrderStatus(
     throw new Error("Order not found");
   }
 
-  // ✅ idempotent
   if (existing.status === nextStatus) {
     return existing;
   }
 
-  // ✅ validate transition
   if (!allowedTransitions[existing.status]?.includes(nextStatus)) {
     throw new Error("Invalid status transition");
   }
 
-  // ✅ prepare update payload (typed, no `any`)
   const data: Prisma.OrderUpdateInput = {
     status: nextStatus,
   };
 
-  // ✅ timestamp mapping (scalable)
   const statusTimestamps: Partial<
     Record<OrderStatus, keyof Prisma.OrderUpdateInput>
   > = {
@@ -222,15 +236,14 @@ export async function updateOrderStatus(
 
   const field = statusTimestamps[nextStatus];
 
-  if (field && !existing[field as keyof typeof existing]) {
-    (data as any)[field] = new Date();
+  if (field && !(existing as any)[field]) {
+    (data as Record<string, any>)[field] = new Date();
   }
 
-  // ✅ concurrency-safe update
   const result = await prisma.order.updateMany({
     where: {
       id: orderId,
-      status: existing.status, // prevents race condition
+      status: existing.status,
     },
     data,
   });
@@ -239,15 +252,17 @@ export async function updateOrderStatus(
     throw new Error("Order was updated by another process");
   }
 
-  // ✅ return updated record
   return prisma.order.findUnique({
     where: { id: orderId },
   });
 }
 
+// ======================
+// CANCEL ORDER
+// ======================
 export async function cancelOrder(
   orderId: string,
-  user: { id: string; role: string }
+  user: JwtUser
 ) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -255,19 +270,23 @@ export async function cancelOrder(
 
   if (!order) throw new Error("Order not found");
 
-  // 🔒 Ownership check
   if (user.role !== "ADMIN" && order.userId !== user.id) {
     throw new Error("Forbidden");
   }
+
   if (!["PLACED", "CONFIRMED"].includes(order.status)) {
     throw new Error("Order cannot be cancelled");
   }
+
   return prisma.order.update({
     where: { id: orderId },
     data: { status: "CANCELLED" },
   });
 }
 
+// ======================
+// PAGINATED ORDERS
+// ======================
 export type GetOrdersParams = {
   userId?: string;
   status?: OrderStatus[];
@@ -279,30 +298,30 @@ export async function getOrders(params: GetOrdersParams) {
   const { userId, status, cursor, limit = 10 } = params;
 
   return prisma.order.findMany({
-  where: {
-    ...(userId && { userId }),
-    ...(status && status.length > 0
-      ? { status: { in: status } }
-      : {}),
-  },
+    where: {
+      ...(userId && { userId }),
+      ...(status && status.length > 0
+        ? { status: { in: status } }
+        : {}),
+    },
 
-  take: limit,
-  skip: cursor ? 1 : 0,
+    take: limit,
+    skip: cursor ? 1 : 0,
 
-  ...(cursor && {
-    cursor: { id: cursor },
-  }),
+    ...(cursor && {
+      cursor: { id: cursor },
+    }),
 
-  orderBy: {
-    createdAt: "desc",
-  },
+    orderBy: {
+      createdAt: "desc",
+    },
 
-  include: {
-    items: {
-      include: {
-        product: true,
+    include: {
+      items: {
+        include: {
+          product: true,
+        },
       },
     },
-  },
-});
+  });
 }

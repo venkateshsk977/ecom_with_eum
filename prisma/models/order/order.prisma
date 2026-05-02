@@ -1,19 +1,26 @@
 enum OrderStatus {
+  PENDING
   PENDING_PAYMENT
   PAID
+  PLACED
   CONFIRMED
   PACKED
   SHIPPED
   DELIVERED
   FAILED
   CANCELLED
-  PENDING
-  PLACED
 }
 
 enum PaymentMethod {
   COD
   ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
 }
 
 model Order {
@@ -27,7 +34,10 @@ model Order {
   addressId       String
   address         Address     @relation(fields: [addressId], references: [id])
 
-  status          OrderStatus @default(PENDING)
+  status          OrderStatus @default(PENDING_PAYMENT)
+
+  paymentMethod   PaymentMethod @default(COD)
+  paymentStatus   PaymentStatus @default(PENDING)
 
   subtotalAmount  Decimal     @db.Decimal(10,2)
   taxAmount       Decimal     @db.Decimal(10,2)
@@ -37,14 +47,13 @@ model Order {
   items           OrderItem[]
   payments        Payment[]
 
-  razorpayOrderId   String?   
-  paymentId         String?   
-  paymentMethod     PaymentMethod     @default(COD)
+  razorpayOrderId String?
+  paymentId       String?
 
+  packedAt        DateTime?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
 
-  packedAt     DateTime?
-  shippedAt    DateTime?
-  deliveredAt  DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 

@@ -25,6 +25,7 @@ model Category {
   updatedAt   DateTime    @updatedAt
 
   @@index([parentId])
+  @@index([slug])
   @@map("categories")
 }
 
@@ -34,7 +35,9 @@ model Product {
   sku         String   @unique
   slug        String   @unique
   name        String
-  price       Int        @default(0)
+
+  price       Decimal  @db.Decimal(10,2) @default(0)
+
   categoryId  String
   category    Category @relation(fields: [categoryId], references: [id])
 
@@ -65,13 +68,17 @@ model Address {
 
   fullName    String
   line1       String
+  line2       String?
   city        String
   state       String
   postalCode  String
   country     String
+  phone       String?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([userId])
 }
 
 // FILE: models\checkout\cart-item.prisma
@@ -128,21 +135,25 @@ enum UserStatus {
   INACTIVE
   BLOCKED
 }
+
 model User {
-  id          String     @id @default(uuid())
-  eumId       String?     @unique
-  fullName    String
-  email       String?     @unique
-  passwordHash String?
-  roleId      String
-  role        Role       @relation(fields: [roleId], references: [id])
+  id            String     @id @default(uuid())
+  eumId         String?    @unique
+  fullName      String
+  email         String?    @unique
+  passwordHash  String?
 
-  cart        Cart?
-  addresses   Address[]
-  orders      Order[]
+  status        UserStatus @default(ACTIVE)
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  roleId        String
+  role          Role       @relation(fields: [roleId], references: [id])
+
+  cart          Cart?
+  addresses     Address[]
+  orders        Order[]
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 }
 
 // FILE: models\inventory\inventory.prisma
@@ -159,6 +170,7 @@ model Inventory {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  @@index([productId])
   @@index([minThreshold])
   @@map("inventory")
 }
@@ -186,21 +198,28 @@ model OrderItem {
 
 // FILE: models\order\order.prisma
 enum OrderStatus {
+  PENDING
   PENDING_PAYMENT
   PAID
+  PLACED
   CONFIRMED
   PACKED
   SHIPPED
   DELIVERED
   FAILED
   CANCELLED
-  PENDING
-  PLACED
 }
 
 enum PaymentMethod {
   COD
   ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
 }
 
 model Order {
@@ -214,7 +233,10 @@ model Order {
   addressId       String
   address         Address     @relation(fields: [addressId], references: [id])
 
-  status          OrderStatus @default(PENDING)
+  status          OrderStatus @default(PENDING_PAYMENT)
+
+  paymentMethod   PaymentMethod @default(COD)
+  paymentStatus   PaymentStatus @default(PENDING)
 
   subtotalAmount  Decimal     @db.Decimal(10,2)
   taxAmount       Decimal     @db.Decimal(10,2)
@@ -224,14 +246,13 @@ model Order {
   items           OrderItem[]
   payments        Payment[]
 
-  razorpayOrderId   String?   
-  paymentId         String?   
-  paymentMethod     PaymentMethod     @default(COD)
+  razorpayOrderId String?
+  paymentId       String?
 
+  packedAt        DateTime?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
 
-  packedAt     DateTime?
-  shippedAt    DateTime?
-  deliveredAt  DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -241,20 +262,13 @@ model Order {
 }
 
 // FILE: models\payments\payment.prisma
-enum PaymentStatus {
-  PENDING
-  SUCCESS
-  FAILED
-  REFUNDED
-}
-
 model Payment {
   id             String        @id @default(uuid())
 
   orderId        String
   order          Order         @relation(fields: [orderId], references: [id])
 
-  gatewayName    String
+  gatewayName    String        @default("COD")
   transactionId  String?       @unique
 
   amount         Decimal       @db.Decimal(10,2)

@@ -12,6 +12,7 @@
     "prisma:migrate": "npm run prisma:build && prisma migrate dev",
     "prisma:generate": "npm run prisma:build && prisma generate",
     "prisma:seed": "tsx prisma/seed.ts"
+
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -34,5 +35,9 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5"
+  },
+    "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
+
 }

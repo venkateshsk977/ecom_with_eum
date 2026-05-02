@@ -11,6 +11,7 @@ model Inventory {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  @@index([productId])
   @@index([minThreshold])
   @@map("inventory")
 }
