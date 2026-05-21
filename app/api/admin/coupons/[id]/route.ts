@@ -1,12 +1,14 @@
 import { NextResponse, NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const user = getUser(req);
 
     if (user.role !== "ADMIN") {
@@ -19,7 +21,7 @@ export async function PATCH(
     const body = await req.json();
 
     const updated = await prisma.coupon.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...body,
         expiresAt: body.expiresAt
@@ -32,9 +34,9 @@ export async function PATCH(
       success: true,
       data: updated,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { success: false, message: err.message },
+      { success: false, message: getErrorMessage(err) },
       { status: 400 }
     );
   }

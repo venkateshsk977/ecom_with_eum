@@ -1,6 +1,7 @@
 import { NextResponse ,NextRequest } from "next/server";
 import { addToCart } from "@/modules/checkout/cart.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,13 +18,15 @@ export async function POST(request: NextRequest) {
       success: true,
       data: cart,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to add item to cart");
+
     return NextResponse.json(
       {
         success: false,
-        message: error.message || "Failed to add item to cart",
+        message,
       },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

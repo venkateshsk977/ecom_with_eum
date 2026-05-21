@@ -1,6 +1,7 @@
 import { NextResponse ,NextRequest} from "next/server";
 import { createOnlinePaymentOrder } from "@/modules/payments/payment.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,10 +23,12 @@ export async function POST(request: NextRequest) {
       success: true,
       data: payment,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to initiate payment");
+
     return NextResponse.json(
-      { success: false, message: error.message || "Failed to initiate payment" },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { success: false, message },
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

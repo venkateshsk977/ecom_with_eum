@@ -9,7 +9,7 @@ export async function GET() {
       success: true,
       data: products,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         success: false,

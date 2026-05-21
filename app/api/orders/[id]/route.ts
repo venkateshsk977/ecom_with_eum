@@ -1,6 +1,7 @@
 import { NextResponse,NextRequest } from "next/server";
 import { getOrderByIdSecure } from "@/modules/orders/order.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function GET(
   request: NextRequest,
@@ -31,13 +32,15 @@ export async function GET(
       success: true,
       data: order,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to fetch order");
+
     return NextResponse.json(
       {
         success: false,
-        message: error.message || "Failed to fetch order",
+        message,
       },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

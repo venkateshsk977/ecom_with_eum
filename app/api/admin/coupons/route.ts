@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,9 +41,9 @@ export async function POST(req: NextRequest) {
       success: true,
       data: coupon,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { success: false, message: err.message },
+      { success: false, message: getErrorMessage(err) },
       { status: 400 }
     );
   }

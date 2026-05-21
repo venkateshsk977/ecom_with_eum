@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOrders } from "@/modules/orders/order.service";
 import { OrderStatus } from "@prisma/client";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,10 +40,12 @@ export async function GET(req: NextRequest) {
         ? orders[orders.length - 1].id
         : null,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to fetch orders");
+
     return NextResponse.json(
-      { error: error.message || "Failed to fetch orders" },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { error: message },
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

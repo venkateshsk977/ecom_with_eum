@@ -1,6 +1,7 @@
 import { NextResponse ,NextRequest } from "next/server";
 import { updateCartItemQuantity,deleteCartItem } from "@/modules/checkout/cart.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function PATCH(
   request: NextRequest,
@@ -27,10 +28,12 @@ export async function PATCH(
       success: true,
       data: item,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed");
+
     return NextResponse.json(
-      { success: false, message: error.message || "Failed" },
-      { status: error.message === "Forbidden" ? 403 : 500 }
+      { success: false, message },
+      { status: message === "Forbidden" ? 403 : 500 }
     );
   }
 }
@@ -50,10 +53,12 @@ export async function DELETE(
       success: true,
       message: "Cart item removed",
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed");
+
     return NextResponse.json(
-      { success: false, message: error.message || "Failed" },
-      { status: error.message === "Forbidden" ? 403 : 500 }
+      { success: false, message },
+      { status: message === "Forbidden" ? 403 : 500 }
     );
   }
 }

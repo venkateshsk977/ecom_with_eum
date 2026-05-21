@@ -1,6 +1,7 @@
 import { NextResponse ,NextRequest} from "next/server";
 import { getCartByUserId } from "@/modules/checkout/cart.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,13 +13,15 @@ export async function GET(request: NextRequest) {
       success: true,
       data: cart,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to fetch cart");
+
     return NextResponse.json(
       {
         success: false,
-        message: error.message || "Failed to fetch cart",
+        message,
       },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

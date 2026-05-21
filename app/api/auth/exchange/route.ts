@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
         },
       },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Auth exchange error:", err);
 
     return NextResponse.json(

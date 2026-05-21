@@ -1,20 +1,22 @@
 import prisma from "@/lib/prisma";
-import { UUID } from "crypto";
+import { Prisma } from "@prisma/client";
 
 type AppliedCoupon = {
   id: string;
   code: string;
   discount: number;
+  usageLimit: number | null;
 };
 
 export async function computePricing(
   userId: string,
   addressId?: string,
-  couponCode?: string
+  couponCode?: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma
 ) {
 
  console.log("Computing pricing for user:", userId, "address:", addressId, "coupon:", couponCode);
-  const cart = await prisma.cart.findUnique({
+  const cart = await db.cart.findUnique({
     where: { userId },
     include: {
       items: {
@@ -28,10 +30,10 @@ export async function computePricing(
   }
 
   const address = addressId
-    ? await prisma.address.findFirst({
+    ? await db.address.findFirst({
         where: { id: addressId, userId },
       })
-    : await prisma.address.findFirst({
+    : await db.address.findFirst({
         where: { userId, isDefault: true },
       });
 
@@ -40,7 +42,7 @@ export async function computePricing(
   }
 
   // 🔄 fetch latest prices
-  const products = await prisma.product.findMany({
+  const products = await db.product.findMany({
     where: {
       id: { in: cart.items.map(i => i.productId) },
     },
@@ -78,7 +80,7 @@ export async function computePricing(
   let appliedCoupon: AppliedCoupon | null = null;
 
   if (couponCode) {
-    const coupon = await prisma.coupon.findUnique({
+    const coupon = await db.coupon.findUnique({
       where: { code: couponCode },
     });
 
@@ -104,7 +106,7 @@ export async function computePricing(
       );
     }
 
-    const alreadyUsed = await prisma.couponUsage.findUnique({
+    const alreadyUsed = await db.couponUsage.findUnique({
       where: {
         userId_couponId: {
           userId,
@@ -136,7 +138,8 @@ export async function computePricing(
     appliedCoupon = {
       code: coupon.code,
       discount,
-      id:coupon.id
+      id: coupon.id,
+      usageLimit: coupon.usageLimit,
     };
   }
 

@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUser } from "./getUser";
+import { getUser, JwtUser } from "./getUser";
+import { getErrorMessage } from "./response";
 
 export function withAuth(
-  handler: (req: NextRequest, user: any, context?: any) => Promise<Response>
+  handler: (req: NextRequest, user: JwtUser, context?: unknown) => Promise<Response>
 ) {
-  return async (req: NextRequest, context: any) => {
+  return async (req: NextRequest, context: unknown) => {
     try {
       const user = getUser(req);
       return handler(req, user, context);
-    } catch (err: any) {
+    } catch (err: unknown) {
       return NextResponse.json(
-        { error: err.message },
+        { error: getErrorMessage(err) },
         { status: 401 }
       );
     }

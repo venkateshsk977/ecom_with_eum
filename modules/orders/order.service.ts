@@ -1,8 +1,8 @@
 import prisma from "@/lib/prisma";
 import { OrderStatus, Prisma } from "@prisma/client";
-import { randomUUID } from "crypto";
 import { JwtUser } from "@/lib/getUser";
 import { computePricing } from "../checkout/checkout.service";
+import { randomUUID } from "crypto";
 
 // ======================
 // ORDER STATE MACHINE
@@ -31,11 +31,11 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 export async function createOrderFromCart(userId: string, couponCode?: string) {
   return prisma.$transaction(async (tx) => {
 
-    const pricing = await computePricing(userId, undefined, couponCode);
+    const pricing = await computePricing(userId, undefined, couponCode, tx);
 
     const order = await tx.order.create({
       data: {
-        orderNumber: `ORD-${Date.now()}`,
+        orderNumber: `ORD-${Date.now()}-${randomUUID().slice(0, 8)}`,
         userId,
         addressId: pricing.address.id,
         status: "PLACED",
@@ -77,6 +77,33 @@ export async function createOrderFromCart(userId: string, couponCode?: string) {
     }
 
     if (pricing.coupon) {
+      if (pricing.coupon.usageLimit !== null) {
+        const couponClaim = await tx.coupon.updateMany({
+          where: {
+            id: pricing.coupon.id,
+            usedCount: { lt: pricing.coupon.usageLimit },
+          },
+          data: {
+            usedCount: {
+              increment: 1,
+            },
+          },
+        });
+
+        if (couponClaim.count === 0) {
+          throw new Error("Coupon usage limit reached");
+        }
+      } else {
+        await tx.coupon.update({
+          where: { id: pricing.coupon.id },
+          data: {
+            usedCount: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
       await tx.couponUsage.create({
         data: {
           userId,
@@ -193,8 +220,16 @@ export async function updateOrderStatus(
 
   const field = statusTimestamps[nextStatus];
 
-  if (field && !(existing as any)[field]) {
-    (data as Record<string, any>)[field] = new Date();
+  if (field === "packedAt" && !existing.packedAt) {
+    data.packedAt = new Date();
+  }
+
+  if (field === "shippedAt" && !existing.shippedAt) {
+    data.shippedAt = new Date();
+  }
+
+  if (field === "deliveredAt" && !existing.deliveredAt) {
+    data.deliveredAt = new Date();
   }
 
   const result = await prisma.order.updateMany({
@@ -221,23 +256,48 @@ export async function cancelOrder(
   orderId: string,
   user: JwtUser
 ) {
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-  });
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
 
-  if (!order) throw new Error("Order not found");
+    if (!order) throw new Error("Order not found");
 
-  if (user.role !== "ADMIN" && order.userId !== user.id) {
-    throw new Error("Forbidden");
-  }
+    if (user.role !== "ADMIN" && order.userId !== user.id) {
+      throw new Error("Forbidden");
+    }
 
-  if (!["PLACED", "CONFIRMED"].includes(order.status)) {
-    throw new Error("Order cannot be cancelled");
-  }
+    if (!["PLACED", "CONFIRMED"].includes(order.status)) {
+      throw new Error("Order cannot be cancelled");
+    }
 
-  return prisma.order.update({
-    where: { id: orderId },
-    data: { status: "CANCELLED" },
+    const cancelled = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        status: order.status,
+      },
+      data: { status: "CANCELLED" },
+    });
+
+    if (cancelled.count === 0) {
+      throw new Error("Order was updated by another process");
+    }
+
+    for (const item of order.items) {
+      await tx.inventory.update({
+        where: { productId: item.productId },
+        data: {
+          totalQuantity: {
+            increment: item.quantity,
+          },
+        },
+      });
+    }
+
+    return tx.order.findUnique({
+      where: { id: orderId },
+    });
   });
 }
 

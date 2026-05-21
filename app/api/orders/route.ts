@@ -4,6 +4,7 @@ import {
   getOrdersByUserId,
 } from "@/modules/orders/order.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,13 +16,15 @@ export async function POST(request: NextRequest) {
       success: true,
       data: order,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to create order");
+
     return NextResponse.json(
       {
         success: false,
-        message: error.message || "Failed to create order",
+        message,
       },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }
@@ -44,13 +47,15 @@ export async function GET(request: NextRequest) {
       success: true,
       data: orders,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error, "Failed to fetch orders");
+
     return NextResponse.json(
       {
         success: false,
-        message: error.message || "Failed to fetch orders",
+        message,
       },
-      { status: error.message === "Unauthorized" ? 401 : 500 }
+      { status: message === "Unauthorized" ? 401 : 500 }
     );
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateOrderStatus } from "@/modules/orders/order.service";
 import { OrderStatus } from "@prisma/client";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function PATCH(
   req: NextRequest,
@@ -33,9 +34,9 @@ export async function PATCH(
     const updated = await updateOrderStatus(id, status, user);
 
     return NextResponse.json(updated);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: err.message },
+      { error: getErrorMessage(err) },
       { status: 400 }
     );
   }

@@ -1,6 +1,7 @@
 import { NextResponse ,NextRequest} from "next/server";
 import { cancelOrder } from "@/modules/orders/order.service";
 import { getUser } from "@/lib/getUser";
+import { getErrorMessage } from "@/lib/response";
 
 export async function PATCH(
   request: NextRequest,
@@ -16,10 +17,12 @@ export async function PATCH(
       success: true,
       data: order,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+
     return NextResponse.json(
-      { success: false, message: error.message },
-      { status: error.message === "Forbidden" ? 403 : 400 }
+      { success: false, message },
+      { status: message === "Forbidden" ? 403 : 400 }
     );
   }
 }

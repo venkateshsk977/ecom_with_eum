@@ -45,7 +45,7 @@ async function main() {
   // ======================
   // USERS
   // ======================
-  const adminUser = await prisma.user.create({
+  await prisma.user.create({
     data: {
       eumId: "EUM-ADMIN-001",
       fullName: "Admin User",

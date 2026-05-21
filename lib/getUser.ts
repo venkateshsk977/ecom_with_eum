@@ -4,6 +4,16 @@ export type JwtUser = {
   id: string;
   role: string;
 };
+
+function isJwtUser(value: unknown): value is JwtUser {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    ["ADMIN", "USER"].includes(String((value as { role?: unknown }).role))
+  );
+}
+
 export function getUser(req: NextRequest): JwtUser {
   const userHeader = req.headers.get("x-user");
 
@@ -20,12 +30,7 @@ export function getUser(req: NextRequest): JwtUser {
   }
 
   // 🔒 Runtime validation
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    typeof (parsed as any).id !== "string" ||
-    !["ADMIN", "USER"].includes((parsed as any).role)
-  ) {
+  if (!isJwtUser(parsed)) {
     throw new Error("Invalid user payload");
   }
 

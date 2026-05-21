@@ -3,8 +3,6 @@ import jwt from "jsonwebtoken";
 import { JwtUser } from "./lib/getUser";
 const SECRET = process.env.JWT_SECRET!;
 
-type Role = "ADMIN" | "USER";
-
 /**
  * 1. Public routes (no auth required)
  */
@@ -62,8 +60,8 @@ try {
   if (
     typeof decoded !== "object" ||
     decoded === null ||
-    typeof (decoded as any).id !== "string" ||
-    typeof (decoded as any).role !== "string"
+    typeof (decoded as { id?: unknown }).id !== "string" ||
+    typeof (decoded as { role?: unknown }).role !== "string"
   ) {
     return NextResponse.json(
       { error: "Invalid token payload" },
